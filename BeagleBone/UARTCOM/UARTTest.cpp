@@ -37,9 +37,10 @@
 #include "mraa/uart.hpp"
 
 /* UART port */
+
 #define UART_PORT 0
 
-const char* dev_path = "/dev/ttyS0";
+const char* dev_path = "/dev/ttyO1";
 
 volatile sig_atomic_t flag = 1;
 
