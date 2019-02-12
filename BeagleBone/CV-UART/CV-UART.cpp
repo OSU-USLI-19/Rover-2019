@@ -12,22 +12,45 @@
  
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgproc/imgproc.hpp"
+#include "mraa/common.hpp"
+#include "mraa/uart.hpp"
 #include "opencv2/imgcodecs.hpp"
+#include <opencv2/opencv.hpp>
 #include <stdio.h>
 #include <stdlib.h>
-#include<iostream>
-#include<opencv2/opencv.hpp>
-#include<time.h>
+#include <iostream>
+#include <time.h>
+#include <signal.h>
+#include <unistd.h>
+#include <string>
 
 using namespace std;
 using namespace cv;
-
-
 
 Mat testFrame;
 int thresh = 275;
 int max_thresh = 500;
 RNG rng(12345);
+
+
+
+/* UART port */
+
+#define UART_PORT 0
+
+const char* dev_path = "/dev/ttyO1";
+
+volatile sig_atomic_t flag = 1;
+
+void
+sig_handler(int signum)
+{
+    if (signum == SIGINT) {
+        std::cout << "Exiting..." << std::endl;
+        flag = 0;
+    }
+}
+
 
 
 Point CenterFinder(Mat* edges, Mat* frame)
@@ -38,7 +61,7 @@ Point CenterFinder(Mat* edges, Mat* frame)
     int MAX = 0;
     
     HoughCircles(*edges, circles, HOUGH_GRADIENT, 1, 
-                5,              //Change this value to detect circles with different distances to each other   edges->rows/4
+                8,              //Change this value to detect circles with different distances to each other   edges->rows/4
                 100, 35,        //Thresholds
                 1, 200);        //minimum and maximum size circles to detect min_radius and max_radius
     
@@ -92,12 +115,52 @@ Point CenterFinder(Mat* edges, Mat* frame)
     return center;
 }
 
+
+
+
+
 int main(int argc, char** argv)
 {
+    
+    signal(SIGINT, sig_handler);
+    string UARTBuffer;
+    
+    
+    //! [Interesting]
+    // If you have a valid platform configuration use numbers to represent uart
+    // device. If not use raw mode where std::string is taken as a constructor
+    // parameter
+    mraa::Uart* uart;
+    try {
+        uart = new mraa::Uart(UART_PORT);
+    } catch (std::exception& e) {
+        std::cerr << e.what() << ", likely invalid platform config" << std::endl;
+    }
+
+    try {
+        uart = new mraa::Uart(dev_path);
+    } catch (std::exception& e) {
+        std::cerr << "Error while setting up raw UART, do you have a uart?" << std::endl;
+        std::terminate();
+    }
+
+    if (uart->setBaudRate(115200) != mraa::SUCCESS) {
+        std::cerr << "Error setting parity on UART" << std::endl;
+    }
+
+    if (uart->setMode(8, mraa::UART_PARITY_NONE, 1) != mraa::SUCCESS) {
+        std::cerr << "Error setting parity on UART" << std::endl;
+    }
+
+    if (uart->setFlowcontrol(false, false) != mraa::SUCCESS) {
+        std::cerr << "Error setting flow control UART" << std::endl;
+    }
     
     VideoCapture capture(0);
     capture.set(CV_CAP_PROP_FRAME_WIDTH, 1280);
     capture.set(CV_CAP_PROP_FRAME_HEIGHT, 720);
+  
+  
     
     if(!capture.isOpened()){
 	    cout << "Failed to connect to the camera." << endl;
@@ -106,22 +169,28 @@ int main(int argc, char** argv)
     Mat frame, edges, cannyEdges;
     int count = 0;
     Point center;
-    
+    int frames = 10;
+    int dist = 0;
+    int dropFrames = 9;
+    /*
     struct timespec start, end;
     clock_gettime( CLOCK_REALTIME, &start );
-    int frames = 20;
-    
+    int frames = 1;
+    */
 
     while(count != frames){
-        capture >> frame;
         
         count++;
+        //capture >> frame;
+        
+        for(int i = 0; i < dropFrames; i++){
+            capture.read(frame);
+        }
         
         if(frame.empty()){
 		    cout << "Failed to capture an image" << endl;
 		    return -1;
         }
-    
         
         cvtColor(frame, edges, CV_BGR2GRAY);
         
@@ -132,16 +201,34 @@ int main(int argc, char** argv)
         imwrite("Captures/edges.png", cannyEdges);
         
         center = CenterFinder(&cannyEdges, &frame);
-    
-        cout << "Frame Number:" << count << " " << "Center Point: "<< center << endl;
+        
+        
+        if(center.x >= 640)
+        {
+            dist = center.x % 640;
+            UARTBuffer = "R-" + to_string(dist);
+            
+        } else if(center.x == 0){
+            UARTBuffer = "NO CIRCLE";
+        } else {
+            
+            dist = 640 - center.x;
+            UARTBuffer = "L-" + to_string(dist);
+            
+        }
+        
+        uart->writeStr(UARTBuffer);
+        cout << "Frame Number:" << count << " " << "Transmission: "<< UARTBuffer << " With a center of: " << center << endl;
+        
+        
     }
   
-    
+    /*
     clock_gettime( CLOCK_REALTIME, &end );
     double difference = (end.tv_sec - start.tv_sec) + (double)(end.tv_nsec - start.tv_nsec)/1000000000.0d;
     cout << "It took " << difference << " seconds to process " << frames << " frames" << endl;
     cout << "Capturing and processing " << frames/difference << " frames per second " << endl;
-    
+    */
 
     
     
