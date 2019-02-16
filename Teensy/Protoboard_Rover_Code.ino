@@ -1,7 +1,8 @@
 #include <Wire.h>
 
 //accelerometer address
-const int MPU_addr = 0x68;
+const int Accel_Mag_addr = 0x18;
+const int Accel_addr = 0x19;
 
 //pin definitions
 int sonar_r = 31, sonar_l = 32;
@@ -19,12 +20,13 @@ int num_drills = 3;
 int door_delay = 400;
 int auger_delay = 2000;
 
+//global constraints
+float level_target = 0.15;
+
+//global speed definitions
+int curr = 0;
+
 void setup() {
-  Wire2.begin();
-  Wire2.beginTransmission(MPU_addr);
-  Wire2.write(0x6B);
-  Wire2.write(0);
-  Wire2.endTransmission(true);
   
   pinMode(sonar_r, INPUT); pinMode(sonar_l, INPUT);
   pinMode(dr_dir_l, OUTPUT); pinMode(dr_dir_r, OUTPUT); pinMode(dr_pwm_l, OUTPUT); pinMode(dr_pwm_r, OUTPUT);
@@ -32,9 +34,24 @@ void setup() {
   pinMode(auger_dir1, OUTPUT); pinMode(auger_dir2, OUTPUT); pinMode(auger_pwm, OUTPUT);
   pinMode(auger_stby, OUTPUT); pinMode(soil_stby, OUTPUT);
   pinMode(green_led, OUTPUT); pinMode(red_led, OUTPUT);
+
+  Wire2.begin();
+
+  //Accelerometer setup.
+  Wire2.beginTransmission(Accel_addr);            //Talk specifically to the accelerometer/magnetometer.
+  Wire2.write(0x20);                              //Access control register 1A.
+  Wire2.write(0x97);                              //xxxxHz, Normal Mode, XYZ Active.
+  Wire2.endTransmission(true);
+  Wire2.beginTransmission(Accel_addr);
+  Wire2.write(0x23);
+  Wire2.write(0x48);
+  Wire2.endTransmission(true);
   
   Serial.begin(9600);
   digitalWrite(auger_stby, HIGH); digitalWrite(soil_stby, HIGH); //Keep motor drivers powered.
+
+  
+  
 }
 
 void loop() {
@@ -44,6 +61,7 @@ void loop() {
   led(2);
   collect_soil();
   led(3);
+  forward(0);
   //Do nothing forever.
   while(1){
     delay(1000);
@@ -54,35 +72,28 @@ void loop() {
 void move_away(){
   int i = 0;
 
-  for(int k = 0; k < 255; k++){
-    forward(k);
-    i = i + 5;
-    delay(slow_start_delay);
-  }
+  forward(255);
   
   while(i < (drive_time * 1000)){
     
     if(get_distance(0) < .5 or get_distance(1) < .5){
       if(get_distance(0) < get_distance(1)){
-        while(get_distance(0) < get_distance(1)){
+        while(get_distance(0) < 0.5){
           right(100);
           i = i + 100;
           delay(100);
         }
       }else if(get_distance(0) > get_distance(1)){
-        while(get_distance(0) < get_distance(1)){
+        while(get_distance(1) < 0.5){
           right(100);
           i = i + 100;
           delay(100);
         }
       }
-      for(int k = 100; k < 255; k++){
-        forward(k);
-        i = i + 5;
-        delay(slow_start_delay);
-      }
-    }
-    
+      forward(255);
+      delay(50);
+      i = i + 50;
+    }   
   }
 }
 
@@ -106,7 +117,20 @@ void collect_soil(){
 
 void forward(int val){
   digitalWrite(dr_dir_l, LOW); digitalWrite(dr_dir_r, LOW);
-  analogWrite(dr_pwm_l, val); analogWrite(dr_pwm_r, val);
+  if(val < curr){
+    for(int i = curr; i > val; i--){
+      analogWrite(dr_pwm_l, i); analogWrite(dr_pwm_r, i);
+      delay(slow_start_delay);
+    }
+  }else if(val > curr){
+    for(int i = curr; i < val; i++){
+      analogWrite(dr_pwm_l, i); analogWrite(dr_pwm_r, i);
+      delay(slow_start_delay);
+    }       
+  }else{
+    //Why did you call this function?
+  }
+  curr = val;
 }
 
 void right(int val){
@@ -168,23 +192,43 @@ void bot_door(int val){
 bool check_level(){
   int16_t accx, accy, accz;
   
-  Wire2.beginTransmission(MPU_addr);
-  Wire2.write(0x3B);
-  Wire2.endTransmission(false);
-  Wire2.requestFrom(MPU_addr, 8, true);
-   
+  //Obtain values for x, y, and z acceleration.
+  Wire2.beginTransmission(Accel_addr);
+  Wire2.write(0x28);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Accel_addr, 2, true);        
   accx = Wire2.read() << 8 | Wire2.read();
+       
+  Wire2.beginTransmission(Accel_addr);
+  Wire2.write(0x2A);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Accel_addr, 2, true);
   accy = Wire2.read() << 8 | Wire2.read();
+  
+  Wire2.beginTransmission(Accel_addr);
+  Wire2.write(0x2C);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Accel_addr, 2, true);
   accz = Wire2.read() << 8 | Wire2.read();
 
   //do code after talking with mechs
+  //Nevermind, just going wild.
+
+  float yx = (float) abs(accy) / abs(accx);
+  float zx = (float) abs(accz) / abs(accx);
+
+  if(yx < level_target && zx < level_target){
+    return true;
+  }else{
+    return false;    
+  }
 }
 
 void auger(){
   digitalWrite(auger_dir1, HIGH); digitalWrite(auger_dir2, LOW); analogWrite(auger_pwm, 255);
   delay(auger_delay);
   digitalWrite(auger_dir1, LOW); digitalWrite(auger_dir2, LOW); analogWrite(auger_pwm, 0);
-  delay(350);
+  delay(1000);
   digitalWrite(auger_dir1, LOW); digitalWrite(auger_dir2, HIGH); analogWrite(auger_pwm, 255);
   delay(auger_delay);
   digitalWrite(auger_dir1, LOW); digitalWrite(auger_dir2, LOW); analogWrite(auger_pwm, 0);
