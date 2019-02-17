@@ -151,7 +151,7 @@ void reverse(int val){
 float get_distance(int dir){
   float distance;
   int input;
-  if(dir == 0){
+  if(dir == 0){                     
     input = analogRead(sonar_l);
     distance = input / 200;
     return distance;
@@ -236,7 +236,7 @@ void auger(){
 
 //Third Order Functions Collection
 
-void log_data(){
+void log_data(String blah){
   //There's no data silly.
 }
 
