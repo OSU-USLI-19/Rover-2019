@@ -1,7 +1,16 @@
+/* 
+ * Written by Brent Vasas, 2019
+ * 
+ * OSU USLI Protoboard Rover Code
+ */
+
 #include <Wire.h>
+#include <math.h>
 
 //accelerometer address
-const int MPU_addr = 0x68;
+const int Accel_Mag_addr = 0x18;
+const int Accel_addr = 0x19;
+const int Mag_addr = 0x1E;
 
 //pin definitions
 int sonar_r = 31, sonar_l = 32;
@@ -13,18 +22,19 @@ int green_led = 30, red_led = 29;
 //global delay definitions, in seconds
 int drive_time = 15;                                        
 int slow_start_delay = 5;
-int num_drills = 3;
 
 //global delay definitions, in milliseconds
 int door_delay = 400;
 int auger_delay = 2000;
 
+//global constraints
+float level_target = 0.15;
+int num_drills = 3;
+
+//global speed definitions
+int curr = 0;
+
 void setup() {
-  Wire2.begin();
-  Wire2.beginTransmission(MPU_addr);
-  Wire2.write(0x6B);
-  Wire2.write(0);
-  Wire2.endTransmission(true);
   
   pinMode(sonar_r, INPUT); pinMode(sonar_l, INPUT);
   pinMode(dr_dir_l, OUTPUT); pinMode(dr_dir_r, OUTPUT); pinMode(dr_pwm_l, OUTPUT); pinMode(dr_pwm_r, OUTPUT);
@@ -32,9 +42,39 @@ void setup() {
   pinMode(auger_dir1, OUTPUT); pinMode(auger_dir2, OUTPUT); pinMode(auger_pwm, OUTPUT);
   pinMode(auger_stby, OUTPUT); pinMode(soil_stby, OUTPUT);
   pinMode(green_led, OUTPUT); pinMode(red_led, OUTPUT);
+
+  Wire2.begin();
+
+  //Accelerometer setup
+  Wire2.beginTransmission(Accel_addr);            //Talk specifically to the accelerometer/magnetometer.
+  Wire2.write(0x20);                              //Access control register 1A.
+  Wire2.write(0x97);                              //xxxxHz, Normal Mode, XYZ Active.
+  Wire2.endTransmission(true);
+  Wire2.beginTransmission(Accel_addr);
+  Wire2.write(0x23);
+  Wire2.write(0x48);
+  Wire2.endTransmission(true);
+
+  //Magnetometer Setup
+  Wire2.beginTransmission(Mag_addr);
+  Wire2.write(0x00);
+  Wire2.write(0x9C);
+  Wire2.endTransmission(true);
+  Wire2.beginTransmission(Mag_addr);
+  Wire2.write(0x01);
+  Wire2.write(0x20);
+  Wire2.endTransmission(true);
+  Wire2.beginTransmission(Mag_addr);
+  Wire2.write(0x02);
+  Wire2.write(0x00);
+  Wire2.endTransmission(true);
+
   
   Serial.begin(9600);
   digitalWrite(auger_stby, HIGH); digitalWrite(soil_stby, HIGH); //Keep motor drivers powered.
+
+  
+  
 }
 
 void loop() {
@@ -44,6 +84,7 @@ void loop() {
   led(2);
   collect_soil();
   led(3);
+  forward(0);
   //Do nothing forever.
   while(1){
     delay(1000);
@@ -54,35 +95,28 @@ void loop() {
 void move_away(){
   int i = 0;
 
-  for(int k = 0; k < 255; k++){
-    forward(k);
-    i = i + 5;
-    delay(slow_start_delay);
-  }
+  forward(255);
   
   while(i < (drive_time * 1000)){
     
     if(get_distance(0) < .5 or get_distance(1) < .5){
       if(get_distance(0) < get_distance(1)){
-        while(get_distance(0) < get_distance(1)){
+        while(get_distance(0) < 0.5){
           right(100);
           i = i + 100;
           delay(100);
         }
       }else if(get_distance(0) > get_distance(1)){
-        while(get_distance(0) < get_distance(1)){
+        while(get_distance(1) < 0.5){
           right(100);
           i = i + 100;
           delay(100);
         }
       }
-      for(int k = 100; k < 255; k++){
-        forward(k);
-        i = i + 5;
-        delay(slow_start_delay);
-      }
-    }
-    
+      forward(255);
+      delay(50);
+      i = i + 50;
+    }   
   }
 }
 
@@ -103,10 +137,23 @@ void collect_soil(){
 }
 
 //Second Order Functions Movement
-
+ 
 void forward(int val){
   digitalWrite(dr_dir_l, LOW); digitalWrite(dr_dir_r, LOW);
-  analogWrite(dr_pwm_l, val); analogWrite(dr_pwm_r, val);
+  if(val < curr){
+    for(int i = curr; i > val; i--){
+      analogWrite(dr_pwm_l, i); analogWrite(dr_pwm_r, i);
+      delay(slow_start_delay);
+    }
+  }else if(val > curr){
+    for(int i = curr; i < val; i++){
+      analogWrite(dr_pwm_l, i); analogWrite(dr_pwm_r, i);
+      delay(slow_start_delay);
+    }       
+  }else{
+    //Why did you call this function?
+  }
+  curr = val;
 }
 
 void right(int val){
@@ -124,10 +171,12 @@ void reverse(int val){
   analogWrite(dr_pwm_l, val); analogWrite(dr_pwm_r, val);
 }
 
+//Returns distance to nearest object in meters.
+//Input 0-2: left, middle, right.
 float get_distance(int dir){
   float distance;
   int input;
-  if(dir == 0){
+  if(dir == 0){                     
     input = analogRead(sonar_l);
     distance = input / 200;
     return distance;
@@ -139,8 +188,53 @@ float get_distance(int dir){
     return 0;
 }
 
+//returns heading as degrees counterclockwise from north, 0-359.
+int heading(){
+  //variables
+  int16_t magx, magy, magz;
+  float xy = 0;
+  int dir = 0;
+  
+  //Obtain values for magnetic field across the x, y, and z axis.
+  Wire2.beginTransmission(Mag_addr);
+  Wire2.write(0x03);                             //Access magnetometer data register.        
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Mag_addr, 2, true);          //Request 2 bytes of data from the register.
+  magx = Wire2.read() << 8 | Wire2.read();        //Obtain values for x magnetic field.
+  Wire2.beginTransmission(Mag_addr);
+  Wire2.write(0x05);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Mag_addr, 2, true);
+  magz = Wire2.read() << 8 | Wire2.read();
+  Wire2.beginTransmission(Mag_addr);
+  Wire2.write(0x07);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Mag_addr, 2, true);
+  magy = Wire2.read() << 8 | Wire2.read();
+  Wire2.endTransmission(true);                   //End the transmission. 
+
+
+
+  xy = (float) magx / magy;
+  
+  if(magy > 0){
+    dir = 90 - (atan(xy) * (180 / M_PI));
+  }else if(magy < 0){
+    dir = 270 - (atan(xy) * (180 / M_PI));
+  }else{
+    if(magx < 0){
+      dir = 180;
+    }else{
+      dir = 0;
+    }
+  }
+  return dir;
+}
+
 //Second Order Functions Collection
 
+//Manipulate top door of retention container
+//0 - Close. 1 - Open.
 void top_door(int val){
   if(val == 0){
     digitalWrite(soil_top_dir1, 1); digitalWrite(soil_top_dir2, 0); analogWrite(soil_top_pwm, 150);
@@ -153,6 +247,8 @@ void top_door(int val){
   }
 }
 
+//Manipulate top door of retention container
+//0 - Close. 1 - Open.
 void bot_door(int val){
   if(val == 0){
     digitalWrite(soil_bot_dir1, 1); digitalWrite(soil_bot_dir2, 0); analogWrite(soil_bot_pwm, 150);
@@ -168,23 +264,44 @@ void bot_door(int val){
 bool check_level(){
   int16_t accx, accy, accz;
   
-  Wire2.beginTransmission(MPU_addr);
-  Wire2.write(0x3B);
-  Wire2.endTransmission(false);
-  Wire2.requestFrom(MPU_addr, 8, true);
-   
+  //Obtain values for x, y, and z acceleration.
+  Wire2.beginTransmission(Accel_addr);
+  Wire2.write(0x28);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Accel_addr, 2, true);        
   accx = Wire2.read() << 8 | Wire2.read();
+       
+  Wire2.beginTransmission(Accel_addr);
+  Wire2.write(0x2A);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Accel_addr, 2, true);
   accy = Wire2.read() << 8 | Wire2.read();
+  
+  Wire2.beginTransmission(Accel_addr);
+  Wire2.write(0x2C);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Accel_addr, 2, true);
   accz = Wire2.read() << 8 | Wire2.read();
 
-  //do code after talking with mechs
+  //Divide horizontal components by vertical component.
+  float yx = (float) abs(accy) / abs(accx);
+  float zx = (float) abs(accz) / abs(accx);
+
+  //Compare results against global constraint.
+  if(yx < level_target && zx < level_target){
+    return true;
+  }else{
+    return false;    
+  }
 }
+
+//Sends the auger down and back up.
 
 void auger(){
   digitalWrite(auger_dir1, HIGH); digitalWrite(auger_dir2, LOW); analogWrite(auger_pwm, 255);
   delay(auger_delay);
   digitalWrite(auger_dir1, LOW); digitalWrite(auger_dir2, LOW); analogWrite(auger_pwm, 0);
-  delay(350);
+  delay(1000);
   digitalWrite(auger_dir1, LOW); digitalWrite(auger_dir2, HIGH); analogWrite(auger_pwm, 255);
   delay(auger_delay);
   digitalWrite(auger_dir1, LOW); digitalWrite(auger_dir2, LOW); analogWrite(auger_pwm, 0);
@@ -192,11 +309,11 @@ void auger(){
 
 //Third Order Functions Collection
 
-void log_data(){
+void log_data(String blah){
   //There's no data silly.
 }
 
-//LED Functions
+//LED Function
 
 void led(int i){
   if(i == 0){
