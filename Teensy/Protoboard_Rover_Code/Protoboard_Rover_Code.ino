@@ -72,7 +72,7 @@ void loop() {
 void move_away(){
   int i = 0;
 
-  forward(255);
+  forward(100);
   
   while(i < (drive_time * 1000)){
     
@@ -85,7 +85,7 @@ void move_away(){
         }
       }else if(get_distance(0) > get_distance(1)){
         while(get_distance(1) < 0.5){
-          right(100);
+          left(100);
           i = i + 100;
           delay(100);
         }
@@ -116,7 +116,7 @@ void collect_soil(){
 //Second Order Functions Movement
 
 void forward(int val){
-  digitalWrite(dr_dir_l, LOW); digitalWrite(dr_dir_r, LOW);
+  digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
   if(val < curr){
     for(int i = curr; i > val; i--){
       analogWrite(dr_pwm_l, i); analogWrite(dr_pwm_r, i);
@@ -134,12 +134,12 @@ void forward(int val){
 }
 
 void right(int val){
-  digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, LOW);
+  digitalWrite(dr_dir_l, LOW); digitalWrite(dr_dir_r, HIGH);
   analogWrite(dr_pwm_l, 0); analogWrite(dr_pwm_r, val);
 }
 
 void left(int val){
-  digitalWrite(dr_dir_l, LOW); digitalWrite(dr_dir_r, HIGH);
+  digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, LOW);
   analogWrite(dr_pwm_l, val); analogWrite(dr_pwm_r, 0);
 }
 
