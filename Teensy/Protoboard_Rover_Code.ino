@@ -32,7 +32,8 @@ float level_target = 0.15;
 int num_drills = 3;
 
 //global speed definitions
-int curr = 0;
+int curr_l = 0;
+int curr_r = 0;
 
 void setup() {
   
@@ -94,29 +95,32 @@ void loop() {
 //First Order Functions
 void move_away(){
   int i = 0;
+  float dist = 0.6;
 
-  forward(255);
+  forward(150);
   
   while(i < (drive_time * 1000)){
+    float l = get_distance(0);
+    float r = get_distance(1);
     
-    if(get_distance(0) < .5 or get_distance(1) < .5){
-      if(get_distance(0) < get_distance(1)){
-        while(get_distance(0) < 0.5){
+    if(l < dist || r < dist){
+      if(l < r){
+        while(get_distance(0) < dist){
           right(100);
           i = i + 100;
           delay(100);
         }
-      }else if(get_distance(0) > get_distance(1)){
-        while(get_distance(1) < 0.5){
-          right(100);
+      }else if(l > r){
+        while(get_distance(1) < dist){
+          left(100);
           i = i + 100;
           delay(100);
         }
       }
-      forward(255);
+      forward(100);
       delay(50);
       i = i + 50;
-    }   
+    } 
   }
 }
 
@@ -139,35 +143,79 @@ void collect_soil(){
 //Second Order Functions Movement
  
 void forward(int val){
-  digitalWrite(dr_dir_l, LOW); digitalWrite(dr_dir_r, LOW);
-  if(val < curr){
-    for(int i = curr; i > val; i--){
-      analogWrite(dr_pwm_l, i); analogWrite(dr_pwm_r, i);
-      delay(slow_start_delay);
+  int val_l = curr_l, val_r = curr_r;
+  digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
+  while(val_l != val || val_r != val){
+    if(val_l < val){
+      val_l++;
+    }else if(val_l > val){
+      val_l--;     
     }
-  }else if(val > curr){
-    for(int i = curr; i < val; i++){
-      analogWrite(dr_pwm_l, i); analogWrite(dr_pwm_r, i);
-      delay(slow_start_delay);
-    }       
-  }else{
-    //Why did you call this function?
-  }
-  curr = val;
-}
 
-void right(int val){
-  digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, LOW);
-  analogWrite(dr_pwm_l, 0); analogWrite(dr_pwm_r, val);
+    if(val_r < val){
+      val_r++;
+    }else if(val_r > val){
+      val_r--;     
+    }
+    
+    analogWrite(dr_pwm_r, val_r);
+    analogWrite(dr_pwm_l, val_l);
+    delay(slow_start_delay);
+  }
+  curr_l = val_l;
+  curr_r = val_r;
 }
 
 void left(int val){
-  digitalWrite(dr_dir_l, LOW); digitalWrite(dr_dir_r, HIGH);
-  analogWrite(dr_pwm_l, val); analogWrite(dr_pwm_r, 0);
+  digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
+  int val_l = curr_l, val_r = curr_r;
+  while(val_l != 0 || val_r != val){
+    if(val_l < 0){
+      val_l++;
+    }else if(val_l > 0){
+      val_l--;     
+    }
+
+    if(val_r < val){
+      val_r++;
+    }else if(val_r > val){
+      val_r--;     
+    }
+
+    analogWrite(dr_pwm_r, val_r);
+    analogWrite(dr_pwm_l, val_l);
+    delay(slow_start_delay);
+  }
+  curr_l = 0;
+  curr_r = val_r;
+}
+
+void right(int val){
+  digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
+  int val_l = curr_l, val_r = curr_r;
+  while(val_l != val || val_r != 0){
+    if(val_l < val){
+      val_l++;
+    }else if(val_l > val){
+      val_l--;     
+    }
+
+    if(val_r < 0){
+      val_r++;
+    }else if(val_r > 0){
+      val_r--;     
+    }
+
+    analogWrite(dr_pwm_r, val_r);
+    analogWrite(dr_pwm_l, val_l);
+    delay(slow_start_delay);
+  }
+  curr_l = val_l;
+  curr_r = 0;
 }
 
 void reverse(int val){
-  digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
+  digitalWrite(dr_dir_l, LOW); digitalWrite(dr_dir_r, LOW);
   analogWrite(dr_pwm_l, val); analogWrite(dr_pwm_r, val);
 }
 
@@ -228,6 +276,13 @@ int heading(){
       dir = 0;
     }
   }
+
+  //180 degree difference b/c protoboard.
+  if(dir < 180)
+    dir = dir + 180;
+  else
+    dir = dir - 180;
+
   return dir;
 }
 
@@ -284,11 +339,11 @@ bool check_level(){
   accz = Wire2.read() << 8 | Wire2.read();
 
   //Divide horizontal components by vertical component.
-  float yx = (float) abs(accy) / abs(accx);
-  float zx = (float) abs(accz) / abs(accx);
+  float xz = (float) abs(accx) / abs(accz);
+  float yz = (float) abs(accy) / abs(accz);
 
   //Compare results against global constraint.
-  if(yx < level_target && zx < level_target){
+  if(xz < level_target && yz < level_target){
     return true;
   }else{
     return false;    
