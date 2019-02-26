@@ -50,12 +50,32 @@ void setup() {
   Serial.begin(9600);
   digitalWrite(auger_stby, HIGH); digitalWrite(soil_stby, HIGH); //Keep motor drivers powered.
 
+  int Phase = 1;
   
   
 }
 
 void loop() {
 
+  while(Phase == 1){
+    
+    forward(100);
+    objectAvoidance();
+    
+  
+  }
+
+
+  while(Phase == 2){
+    
+    
+    
+    
+  
+  
+  }
+
+/*
   led(1);
   move_away();
   led(2);
@@ -66,17 +86,13 @@ void loop() {
   while(1){
     delay(1000);
   }
+*/
 }
 
-//First Order Functions
-void move_away(){
-  int i = 0;
 
-  forward(100);
-  
-  while(i < (drive_time * 1000)){
+void objectAvoidance(){
     
-    if(get_distance(0) < .5 or get_distance(1) < .5){
+ if(get_distance(0) < .5 or get_distance(1) < .5){
       if(get_distance(0) < get_distance(1)){
         while(get_distance(0) < 0.5){
           right(100);
@@ -93,9 +109,10 @@ void move_away(){
       forward(255);
       delay(50);
       i = i + 50;
-    }   
+      }   
   }
 }
+
 
 void collect_soil(){
   top_door(1);
@@ -148,15 +165,27 @@ void reverse(int val){
   analogWrite(dr_pwm_l, val); analogWrite(dr_pwm_r, val);
 }
 
+void halt(){
+  analogWrite(dr_pwm_l, 0); analogWrite(dr_pwm_r, 0);   
+}
+
+//Takes 500 ms to gather 5 data points and outputs the average
 float get_distance(int dir){
   float distance;
-  int input;
-  if(dir == 0){                     
-    input = analogRead(sonar_l);
+  int input = 0;
+  if(dir == 0){  
+    for(int i = 0; i < 5; i++){                   
+      input += analogRead(sonar_l);
+      delay(100);
+    }
     distance = input / 200;
     return distance;
   }else if(dir == 1){
-    input = analogRead(sonar_r);
+    for(int i = 0; i < 5; i++){
+      input += analogRead(sonar_r);
+      delay(100);
+    }
+    input = input / 10;
     distance = input / 200;
     return distance;
   }else
