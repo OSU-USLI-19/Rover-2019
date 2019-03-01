@@ -1,8 +1,11 @@
+#include <TeensyThreads.h>
 #include <Wire.h>
+#include <math.h>
 
 //accelerometer address
 const int Accel_Mag_addr = 0x18;
 const int Accel_addr = 0x19;
+const int Mag_addr = 0x1E;
 
 //pin definitions
 int sonar_r = 31, sonar_l = 32;
@@ -14,7 +17,6 @@ int green_led = 30, red_led = 29;
 //global delay definitions, in seconds
 int drive_time = 15;                                        
 int slow_start_delay = 5;
-int num_drills = 3;
 
 //global delay definitions, in milliseconds
 int door_delay = 400;
@@ -22,9 +24,14 @@ int auger_delay = 2000;
 
 //global constraints
 float level_target = 0.15;
+int num_drills = 3;
 
 //global speed definitions
-int curr = 0;
+int curr_l = 0;
+int curr_r = 0;
+
+
+
 
 void setup() {
   
@@ -37,7 +44,7 @@ void setup() {
 
   Wire2.begin();
 
-  //Accelerometer setup.
+  //Accelerometer setup
   Wire2.beginTransmission(Accel_addr);            //Talk specifically to the accelerometer/magnetometer.
   Wire2.write(0x20);                              //Access control register 1A.
   Wire2.write(0x97);                              //xxxxHz, Normal Mode, XYZ Active.
@@ -46,73 +53,49 @@ void setup() {
   Wire2.write(0x23);
   Wire2.write(0x48);
   Wire2.endTransmission(true);
+
+  //Magnetometer Setup
+  Wire2.beginTransmission(Mag_addr);
+  Wire2.write(0x00);
+  Wire2.write(0x9C);
+  Wire2.endTransmission(true);
+  Wire2.beginTransmission(Mag_addr);
+  Wire2.write(0x01);
+  Wire2.write(0x20);
+  Wire2.endTransmission(true);
+  Wire2.beginTransmission(Mag_addr);
+  Wire2.write(0x02);
+  Wire2.write(0x00);
+  Wire2.endTransmission(true);
+
   
   Serial.begin(9600);
   digitalWrite(auger_stby, HIGH); digitalWrite(soil_stby, HIGH); //Keep motor drivers powered.
-
-  int Phase = 1;
   
+  //threads.addThread(objectAvoidance, 0);
   
 }
+
 
 void loop() {
-
-  while(Phase == 1){
-    
-    forward(100);
-    objectAvoidance();
-    
   
-  }
-
-
-  while(Phase == 2){
-    
-    
-    
-    
-  
-  
-  }
-
-/*
+  pinMode(13, OUTPUT);
+  digitalWrite(13, 1);
+  int Phase = 1;
   led(1);
-  move_away();
+  forward(100);
+  
+  while(Phase == 1){
+    //objectAvoidance();
+  }
+
   led(2);
-  collect_soil();
+  
+  while(Phase == 2){
+  }
   led(3);
   forward(0);
-  //Do nothing forever.
-  while(1){
-    delay(1000);
-  }
-*/
 }
-
-
-void objectAvoidance(){
-    
- if(get_distance(0) < .5 or get_distance(1) < .5){
-      if(get_distance(0) < get_distance(1)){
-        while(get_distance(0) < 0.5){
-          right(100);
-          i = i + 100;
-          delay(100);
-        }
-      }else if(get_distance(0) > get_distance(1)){
-        while(get_distance(1) < 0.5){
-          left(100);
-          i = i + 100;
-          delay(100);
-        }
-      }
-      forward(255);
-      delay(50);
-      i = i + 50;
-      }   
-  }
-}
-
 
 void collect_soil(){
   top_door(1);
@@ -133,21 +116,27 @@ void collect_soil(){
 //Second Order Functions Movement
 
 void forward(int val){
+  int val_l = curr_l, val_r = curr_r;
   digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
-  if(val < curr){
-    for(int i = curr; i > val; i--){
-      analogWrite(dr_pwm_l, i); analogWrite(dr_pwm_r, i);
-      delay(slow_start_delay);
+  while(val_l != val || val_r != val){
+    if(val_l < val){
+      val_l++;
+    }else if(val_l > val){
+      val_l--;     
     }
-  }else if(val > curr){
-    for(int i = curr; i < val; i++){
-      analogWrite(dr_pwm_l, i); analogWrite(dr_pwm_r, i);
-      delay(slow_start_delay);
-    }       
-  }else{
-    //Why did you call this function?
+
+    if(val_r < val){
+      val_r++;
+    }else if(val_r > val){
+      val_r--;     
+    }
+    
+    analogWrite(dr_pwm_r, val_r);
+    analogWrite(dr_pwm_l, val_l);
+    delay(slow_start_delay);
   }
-  curr = val;
+  curr_l = val_l;
+  curr_r = val_r;
 }
 
 void right(int val){
@@ -191,6 +180,9 @@ float get_distance(int dir){
   }else
     return 0;
 }
+
+
+
 
 //Second Order Functions Collection
 
@@ -284,5 +276,23 @@ void led(int i){
   }else if(i == 3){
     digitalWrite(red_led, HIGH);
     digitalWrite(green_led, HIGH);
+  }
+}
+
+void objectAvoidance(){
+  if(get_distance(0) < .5 or get_distance(1) < .5){
+    if(get_distance(0) < get_distance(1)){
+      while(get_distance(0) < 0.5){
+        right(100);
+        delay(100);
+      }
+    }else if(get_distance(0) > get_distance(1)){
+      while(get_distance(1) < 0.5){
+        left(100);
+        delay(100);
+      }
+    }
+    forward(100);
+    
   }
 }
