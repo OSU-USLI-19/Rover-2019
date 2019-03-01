@@ -1,6 +1,6 @@
-#include <TeensyThreads.h>
 #include <Wire.h>
 #include <math.h>
+#include <TeensyThreads.h>
 
 //accelerometer address
 const int Accel_Mag_addr = 0x18;
@@ -29,9 +29,6 @@ int num_drills = 3;
 //global speed definitions
 int curr_l = 0;
 int curr_r = 0;
-
-
-
 
 void setup() {
   
@@ -71,30 +68,63 @@ void setup() {
   
   Serial.begin(9600);
   digitalWrite(auger_stby, HIGH); digitalWrite(soil_stby, HIGH); //Keep motor drivers powered.
-  
-  //threads.addThread(objectAvoidance, 0);
+
+  pinMode(13, OUTPUT);
+  digitalWrite(13, 1);
+  threads.addThread(objectAvoidance, 0);
   
 }
 
-
 void loop() {
   
-  pinMode(13, OUTPUT);
-  digitalWrite(13, 1);
+ 
   int Phase = 1;
   led(1);
-  forward(100);
+
+  forward(250);
+  led(2);
   
   while(Phase == 1){
     //objectAvoidance();
   }
 
-  led(2);
   
   while(Phase == 2){
   }
   led(3);
   forward(0);
+}
+
+//First Order Functions
+void move_away(){
+  int i = 0;
+  float dist = 0.6;
+
+  forward(150);
+  
+  while(i < (drive_time * 1000)){
+    float l = get_distance(0);
+    float r = get_distance(1);
+    
+    if(l < dist || r < dist){
+      if(l < r){
+        while(get_distance(0) < dist){
+          right(100);
+          i = i + 100;
+          delay(100);
+        }
+      }else if(l > r){
+        while(get_distance(1) < dist){
+          left(100);
+          i = i + 100;
+          delay(100);
+        }
+      }
+      forward(100);
+      delay(50);
+      i = i + 50;
+    } 
+  }
 }
 
 void collect_soil(){
@@ -114,7 +144,7 @@ void collect_soil(){
 }
 
 //Second Order Functions Movement
-
+ 
 void forward(int val){
   int val_l = curr_l, val_r = curr_r;
   digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
@@ -139,53 +169,139 @@ void forward(int val){
   curr_r = val_r;
 }
 
-void right(int val){
-  digitalWrite(dr_dir_l, LOW); digitalWrite(dr_dir_r, HIGH);
-  analogWrite(dr_pwm_l, 0); analogWrite(dr_pwm_r, val);
+void left(int val){
+  digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
+  int val_l = curr_l, val_r = curr_r;
+  while(val_l != 0 || val_r != val){
+    if(val_l < 0){
+      val_l++;
+    }else if(val_l > 0){
+      val_l--;     
+    }
+
+    if(val_r < val){
+      val_r++;
+    }else if(val_r > val){
+      val_r--;     
+    }
+
+    analogWrite(dr_pwm_r, val_r);
+    analogWrite(dr_pwm_l, val_l);
+    delay(slow_start_delay);
+  }
+  curr_l = 0;
+  curr_r = val_r;
 }
 
-void left(int val){
-  digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, LOW);
-  analogWrite(dr_pwm_l, val); analogWrite(dr_pwm_r, 0);
+void right(int val){
+  digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
+  int val_l = curr_l, val_r = curr_r;
+  while(val_l != val || val_r != 0){
+    if(val_l < val){
+      val_l++;
+    }else if(val_l > val){
+      val_l--;     
+    }
+
+    if(val_r < 0){
+      val_r++;
+    }else if(val_r > 0){
+      val_r--;     
+    }
+
+    analogWrite(dr_pwm_r, val_r);
+    analogWrite(dr_pwm_l, val_l);
+    delay(slow_start_delay);
+  }
+  curr_l = val_l;
+  curr_r = 0;
 }
 
 void reverse(int val){
-  digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
+  digitalWrite(dr_dir_l, LOW); digitalWrite(dr_dir_r, LOW);
   analogWrite(dr_pwm_l, val); analogWrite(dr_pwm_r, val);
 }
 
-void halt(){
-  analogWrite(dr_pwm_l, 0); analogWrite(dr_pwm_r, 0);   
-}
 
-//Takes 500 ms to gather 5 data points and outputs the average
+//Returns distance to nearest object in meters.
+//Input 0-2: left, middle, right.
 float get_distance(int dir){
-  float distance;
-  int input = 0;
-  if(dir == 0){  
-    for(int i = 0; i < 5; i++){                   
-      input += analogRead(sonar_l);
-      delay(100);
+  float distance = 0;
+  int input;
+  int samples = 3;
+  
+  for(int i = 0; i < samples; i++){
+    delay(100);
+    if(dir == 0){                     
+      input = analogRead(sonar_l);
+      distance += input;
+    }else if(dir == 1){
+      input = analogRead(sonar_r);
+      distance += input;
+    }else{
+      return 0;  
     }
-    distance = input / 200;
-    return distance;
-  }else if(dir == 1){
-    for(int i = 0; i < 5; i++){
-      input += analogRead(sonar_r);
-      delay(100);
-    }
-    input = input / 10;
-    distance = input / 200;
-    return distance;
-  }else
-    return 0;
+  }
+  distance = distance / (samples * 200);
+  
+  return distance;
+  
 }
 
+//returns heading as degrees counterclockwise from north, 0-359.
+int heading(){
+  //variables
+  int16_t magx, magy, magz;
+  float xy = 0;
+  int dir = 0;
+  
+  //Obtain values for magnetic field across the x, y, and z axis.
+  Wire2.beginTransmission(Mag_addr);
+  Wire2.write(0x03);                             //Access magnetometer data register.        
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Mag_addr, 2, true);          //Request 2 bytes of data from the register.
+  magx = Wire2.read() << 8 | Wire2.read();        //Obtain values for x magnetic field.
+  Wire2.beginTransmission(Mag_addr);
+  Wire2.write(0x05);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Mag_addr, 2, true);
+  magz = Wire2.read() << 8 | Wire2.read();
+  Wire2.beginTransmission(Mag_addr);
+  Wire2.write(0x07);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Mag_addr, 2, true);
+  magy = Wire2.read() << 8 | Wire2.read();
+  Wire2.endTransmission(true);                   //End the transmission. 
 
 
+
+  xy = (float) magx / magy;
+  
+  if(magy > 0){
+    dir = 90 - (atan(xy) * (180 / M_PI));
+  }else if(magy < 0){
+    dir = 270 - (atan(xy) * (180 / M_PI));
+  }else{
+    if(magx < 0){
+      dir = 180;
+    }else{
+      dir = 0;
+    }
+  }
+
+  //180 degree difference b/c protoboard.
+  if(dir < 180)
+    dir = dir + 180;
+  else
+    dir = dir - 180;
+
+  return dir;
+}
 
 //Second Order Functions Collection
 
+//Manipulate top door of retention container
+//0 - Close. 1 - Open.
 void top_door(int val){
   if(val == 0){
     digitalWrite(soil_top_dir1, 1); digitalWrite(soil_top_dir2, 0); analogWrite(soil_top_pwm, 150);
@@ -198,6 +314,8 @@ void top_door(int val){
   }
 }
 
+//Manipulate top door of retention container
+//0 - Close. 1 - Open.
 void bot_door(int val){
   if(val == 0){
     digitalWrite(soil_bot_dir1, 1); digitalWrite(soil_bot_dir2, 0); analogWrite(soil_bot_pwm, 150);
@@ -232,18 +350,19 @@ bool check_level(){
   Wire2.requestFrom(Accel_addr, 2, true);
   accz = Wire2.read() << 8 | Wire2.read();
 
-  //do code after talking with mechs
-  //Nevermind, just going wild.
+  //Divide horizontal components by vertical component.
+  float xz = (float) abs(accx) / abs(accz);
+  float yz = (float) abs(accy) / abs(accz);
 
-  float yx = (float) abs(accy) / abs(accx);
-  float zx = (float) abs(accz) / abs(accx);
-
-  if(yx < level_target && zx < level_target){
+  //Compare results against global constraint.
+  if(xz < level_target && yz < level_target){
     return true;
   }else{
     return false;    
   }
 }
+
+//Sends the auger down and back up.
 
 void auger(){
   digitalWrite(auger_dir1, HIGH); digitalWrite(auger_dir2, LOW); analogWrite(auger_pwm, 255);
@@ -261,7 +380,7 @@ void log_data(String blah){
   //There's no data silly.
 }
 
-//LED Functions
+//LED Function
 
 void led(int i){
   if(i == 0){
@@ -280,17 +399,17 @@ void led(int i){
 }
 
 void objectAvoidance(){
-  if(get_distance(0) < .5 or get_distance(1) < .5){
-    if(get_distance(0) < get_distance(1)){
-      while(get_distance(0) < 0.5){
-        right(100);
-        delay(100);
-      }
-    }else if(get_distance(0) > get_distance(1)){
-      while(get_distance(1) < 0.5){
-        left(100);
-        delay(100);
-      }
+  while(1){
+    if(get_distance(0) < .5 or get_distance(1) < .5){
+      if(get_distance(0) < get_distance(1)){
+        while(get_distance(0) < 0.5){
+          right(100);
+        }
+      }else if(get_distance(0) > get_distance(1)){
+        while(get_distance(1) < 0.5){
+          left(100);
+        }
+    }
     }
     forward(100);
     
