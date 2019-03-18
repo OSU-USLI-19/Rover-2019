@@ -31,6 +31,7 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string>
 
 /* mraa headers */
 #include "mraa/common.hpp"
@@ -87,11 +88,11 @@ main(void)
     if (uart->setFlowcontrol(false, false) != mraa::SUCCESS) {
         std::cerr << "Error setting flow control UART" << std::endl;
     }
-
+    
     while (flag) {
         /* send data through uart */
-        uart->writeStr("Hello Mraa!");
-
+        uart->writeStr("L-640");
+        std::cout << "Transmit Distance!" << std::endl;
         sleep(1);
     }
     //! [Interesting]
