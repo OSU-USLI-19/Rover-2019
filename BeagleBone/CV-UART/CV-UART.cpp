@@ -74,7 +74,11 @@ Point CenterFinder(Mat* edges, Mat* frame)
     }
     
     
+    
+    /*
     int centerCount[circles.size()];
+    
+    
     
     for(int i = 0; i < circles.size(); i++){
         centerCount[i] = 0;
@@ -102,7 +106,7 @@ Point CenterFinder(Mat* edges, Mat* frame)
             center = Point(c2[0], c2[1]);
         }
     }
-    
+    */
     /*
     for(int i = 0; i < circles.size(); i++){
         cout << centerCount[i] << " "; 
@@ -169,16 +173,16 @@ int main(int argc, char** argv)
     Mat frame, edges, cannyEdges;
     int count = 0;
     Point center;
-    int frames = 10;
+    int frames = 1;
     int dist = 0;
-    int dropFrames = 9;
+    int dropFrames = 5;
     /*
     struct timespec start, end;
     clock_gettime( CLOCK_REALTIME, &start );
-    int frames = 1;
+    int frames = 1;count != frames
     */
 
-    while(count != frames){
+    while(1){
         
         count++;
         //capture >> frame;
@@ -206,18 +210,18 @@ int main(int argc, char** argv)
         if(center.x >= 640)
         {
             dist = center.x % 640;
-            UARTBuffer = "R-" + to_string(dist);
-            
+            UARTBuffer = "R-" + to_string(dist)  + "!";
+            uart->writeStr(UARTBuffer);
         } else if(center.x == 0){
-            UARTBuffer = "NO CIRCLE";
+            UARTBuffer = "NO CIRCLE!";
         } else {
             
             dist = 640 - center.x;
-            UARTBuffer = "L-" + to_string(dist);
-            
+            UARTBuffer = "L-" + to_string(dist) + "!";
+            uart->writeStr(UARTBuffer);
         }
         
-        uart->writeStr(UARTBuffer);
+        
         cout << "Frame Number:" << count << " " << "Transmission: "<< UARTBuffer << " With a center of: " << center << endl;
         
         
