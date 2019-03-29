@@ -19,8 +19,12 @@
 uint8_t *payloadPacket, *bufferPacket;
 uint8_t *packet = new uint8_t[220];
 
+// Necessary XBee addresses
+// Harold
 uint32_t harold_h = 0x0013A200;
 uint32_t harold_l = 0x417E3812;
+//Scooby
+
 
 // SD Card Setup
 const int chipSelect = BUILTIN_SDCARD;
