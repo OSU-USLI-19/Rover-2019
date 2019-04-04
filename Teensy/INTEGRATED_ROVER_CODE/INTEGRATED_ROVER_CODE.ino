@@ -48,13 +48,17 @@ const int Accel_Mag_addr = 0x18;
 const int Accel_addr = 0x19;
 const int Mag_addr = 0x1E;
 
+//RF Global Def
+const uint32_t ShaggyHigh = 0x0013A200;
+const uint32_t ShaggyLow = 0x418C5CE4; 
+
 //pin definitions
 int teensyLED = 13;
 int sonar_r = 31, sonar_l = 32; uint8_t sonar_m = A22;
 volatile int dr_dir_l = 0, dr_dir_r = 1, dr_pwm_l = 5, dr_pwm_r = 6;
 const int soil_top_dir1 = 18, soil_top_dir2 = 17, soil_top_pwm = 16, soil_bot_dir1 = 20, soil_bot_dir2 = 21, soil_bot_pwm = 22, soil_stby = 19;
 const int auger_dir1 = 37, auger_dir2 = 36, auger_pwm = 35, auger_stby = 38;
-const int auger_enA = 11, auger_enB = 12, soil_top_enA = 24, soil_top_enB = 25;
+const int auger_enA = 12, auger_enB = 11, soil_top_enA = 24, soil_top_enB = 25;
 const int soil_bot_enA = 26, soil_bot_enB = 27; 
 const int sonarInterrupt = 29; const int sonarFlag = 30;
 
@@ -65,14 +69,14 @@ int auger_dir = 0, soil_top_dir = 0, soil_bot_dir = 0;
 
 //global delay definitions, in seconds
 int drive_time = 15;                                        
-int slow_start_delay = 5;
+int slow_start_delay = 10;
 
 //global delay definitions, in milliseconds
 int door_delay = 400;
 int auger_delay = 2000;
 
 //global constraints
-float level_target = 0.15;
+float level_target = 0.25;
 int num_drills = 3;
 int Phase = 1;
 
@@ -84,7 +88,12 @@ int curr_r = 0;
 const int chipSelect = BUILTIN_SDCARD;
 File dataFile;
 
-//ThreadID
+//Transmitting BS
+uint8_t *payloadPacket, *bufferPacket;
+uint8_t *packet = new uint8_t[220];
+char data[100];
+
+
 int threadID;
 
 
@@ -121,8 +130,8 @@ void setup() {
   pinMode(auger_enB, INPUT); 
   pinMode(soil_top_enA, INPUT); 
   pinMode(soil_top_enB, INPUT); 
-  //pinMode(soil_bot_enA, INPUT); 
-  //pinMode(soil_bot_enB, INPUT);
+  pinMode(soil_bot_enA, INPUT); 
+  pinMode(soil_bot_enB, INPUT);
   pinMode(auger_stby, OUTPUT); 
   pinMode(soil_stby, OUTPUT);
   digitalWrite(auger_stby, HIGH); //Keep motor drivers powered.
@@ -147,7 +156,7 @@ void setup() {
   Wire2.endTransmission(true);
   Wire2.beginTransmission(Mag_addr);
   Wire2.write(0x01);
-  Wire2.write(0x20);
+  Wire2.write(0xE0);
   Wire2.endTransmission(true);
   Wire2.beginTransmission(Mag_addr);
   Wire2.write(0x02);
@@ -166,67 +175,172 @@ void setup() {
   Serial3.begin(9600);                                                               //Serial for Receiving from GPS unit
   Serial5.begin(115200);                                                             //Serial for UART Beaglebone
 
+  //Initialize buffer packet
+  bufferPacket = new uint8_t[300];
+
   //Begin Threading for sonar to watch for objects
-  int threadID = threads.addThread(sonarWatching, 0); 
+  //threadID = threads.addThread(sonarWatching, 0); 
   
   //Interrupts
   attachInterrupt(digitalPinToInterrupt(sonarInterrupt), objectAvoidance, RISING);   //Child Thread will send interrupt to main thread
-  attachInterrupt(digitalPinToInterrupt(34), Docking, RISING);                       //Interrupt when sent transmission by Beaglebone
-  //attachInterrupt(digitalPinToInterrupt(auger_enA), auger_encoder, RISING);
-  //attachInterrupt(digitalPinToInterrupt(soil_top_enA), soil_top_encoder, RISING);
-  //attachInterrupt(digitalPinToInterrupt(soil_bot_enA), soil_bot_encoder, RISING);
+  //attachInterrupt(digitalPinToInterrupt(34), Docking, RISING);                       //Interrupt when sent transmission by Beaglebone
+  attachInterrupt(digitalPinToInterrupt(auger_enA), auger_encoder, RISING);
+  attachInterrupt(digitalPinToInterrupt(soil_top_enA), soil_top_encoder, RISING);
+  attachInterrupt(digitalPinToInterrupt(soil_bot_enA), soil_bot_encoder, RISING);
+
 }
 
+/*
 void loop() {
+  String sentence;
+  while(1){
+    //
+    sentence = getTransmission();
+    //logString(sentence);
+    //transmitShaggy("This transmission worked properly");
+    //transmitShaggy(String(sentence));
+    //parseGPS(&BaseStatGPS, sentence);
+    
+    //transmitGPS(&BaseStatGPS);
+    delay(1000);
+  }
+  
  
+}
+*/
+//*******************************************************FINAL LOOP************************************************************
+
+
+void loop() {
+  
   GPS rovGPS;
   GPS rocketGPS;
   GPS baseStatGPS;
-  char* blah = "$GNRMC,024939.00,A,4433.63613,N,12317.48070,W,1.800,,140319,,,A*72";
+  GPS Aft;
+  GPS SoilSample;
+  
+  while(checkFlipped()){
+    digitalWrite(dr_dir_l, HIGH); 
+    digitalWrite(dr_dir_r, HIGH);
+    analogWrite(dr_pwm_r, 255);
+    analogWrite(dr_pwm_l, 255);
+    curr_l = 255;
+    curr_r = 255;
+    delay(1000);
+    halt();
+  }
 
-  //wait for lock
-  while(rocketGPS.isValid == 0){
+  
+  String sentence;
+  //wait for lock and aft transmission
+  while(rocketGPS.isValid == 0 ){     //|| Aft.isValid == 0
+    //sentence = getTransmission();
+    //parseGPS(&Aft, sentence);
     getGPSsample(&rocketGPS);
-    delay(5000);
-  }                               
-
-  forward(125);
+    delay(1000);
+  }    
+ 
+  //Begin Threading for sonar to watch for objects          
+  threadID = threads.addThread(sonarWatching, 0);
+  
+  slowTurn(250, 200);
   delay(5000);
-
   
   //PHASE 1
-  while(distanceGPS(&rovGPS, &rocketGPS) <= 10){
+  do{
     getGPSsample(&rovGPS);
-    //moveAway(&rovGPS, &rocketGPS);
-    forward(125);
+    slowTurn(250, 200);
+    delay(5000);
+  }while(distanceGPS(&rovGPS, &rocketGPS) <= 30 );  // || distanceGPS(&rovGPS, &Aft) <= 40
+
+  threads.suspend(threadID);
+  while(1){
+    //Activate Auger to drill for sample
+    if(check_level()){
+      top_door(0);
+      delay(100);
+      auger();
+      delay(100);
+      top_door(1);
+      getGPSsample(&SoilSample);
+      break;
+    }
+    
+    threads.restart(threadID);
+    slowTurn(250, 200);
+    delay(1000);
+    halt();
+    threads.suspend(threadID);
+  }
+  
+  
+  //Freeze until transmitted coordinates to travel to base station
+  char* convertedSentence;
+  halt();
+  while(baseStatGPS.isValid != 1){
+    sentence = getTransmission();
+    sentence.toCharArray(convertedSentence, strlen(convertedSentence));
+    parseGPS(&baseStatGPS, convertedSentence);
     delay(1000);
   }
-  Phase = Phase + 1;
-  //threads.suspend(threadID);
-  while(Phase == 2){
-    forward(0);
-  }
-  //threads.restart(threadID);
   
+  threads.restart(threadID);
   
-  while(Phase == 3){
-	
+  //Travel to base station
+  while(distanceGPS(&rovGPS, &baseStatGPS) >= 10){
+    getGPSsample(&rovGPS);
+    moveToward(&rovGPS, &baseStatGPS);
+    slowTurn(250, 200);
+    delay(5000);
   }
- 
+  
+  //sit and transmit soil sample after docking complete
+  while(1){
+     halt();
+     transmitGPS(&SoilSample);  
+     delay(5000);
+  }
 }
 
 //**********************************************************Rover Movement Functions w/ slow start and stop***************************************
 
-void blinking(){
-  digitalWrite(teensyLED, LOW);
-  delay(100);
-  digitalWrite(teensyLED, HIGH);
-  delay(100);
+void blinking(int i){
+  while(i > 0){
+    digitalWrite(teensyLED, LOW);
+    delay(100);
+    digitalWrite(teensyLED, HIGH);
+    delay(100);
+    i--;
+  }
+}
+
+void halt(){
+  int val_l = curr_l, val_r = curr_r;
+  while(val_l != 0 || val_r != 0){
+    if(val_l < 0){
+      val_l++;
+    }else if(val_l > 0){
+      val_l--;     
+    }
+
+    if(val_r < 0){
+      val_r++;
+    }else if(val_r > 0){
+      val_r--;     
+    }
+    
+    analogWrite(dr_pwm_r, val_r);
+    analogWrite(dr_pwm_l, val_l);
+    delay(slow_start_delay);
+  }
+  curr_l = val_l;
+  curr_r = val_r;
 }
  
 void forward(int val){
   int val_l = curr_l, val_r = curr_r;
   digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
+  
   while(val_l != val || val_r != val){
     if(val_l < val){
       val_l++;
@@ -416,9 +530,10 @@ void reverse(int val){
 //****************************************************************GPS ROUTING ALGORITHMS**********************************************
 
 
+
 void moveToward(GPS* startGPS, GPS* endGPS){
   float startLon, startLat, endLon, endLat;
-  forward(0);
+  halt();
 
   startLon =  startGPS->lon.lon_lat;
   startLat =  startGPS->lat.lon_lat;
@@ -426,28 +541,50 @@ void moveToward(GPS* startGPS, GPS* endGPS){
   endLon = endGPS->lon.lon_lat;
   endLat = endGPS->lat.lon_lat;
 
+  float navHeading = nav_heading(startLon, startLat, endLon, endLat);
+  float navHeadingLower = (navHeading - 30);
+  float navHeadingUpper = (navHeading + 30);
+
+  if(navHeadingLower < 0){
+    navHeadingLower += 360;
+  } 
+  if(navHeadingUpper >= 360){
+    navHeadingUpper -= 360;  
+  }
+
+  double ULDiff = navHeadingUpper - navHeadingLower;
   //orient rover in direction of end location
-  while((heading() < (nav_heading(startLon, startLat, endLon, endLat) - 10)) || (heading() > (nav_heading(startLon, startLat, endLon, endLat) + 10))){
-    
-    forward(0);
-    delay(2000);
-    
-    if(heading() < nav_heading(startLon, startLat, endLon, endLat)){
-       hardRight(100);
-       delay(500);
+  if(ULDiff > 0){
+    while((heading() > navHeadingUpper) || (heading() < navHeadingLower)){
       
-    } else if(heading() < nav_heading(startLon, startLat, endLon, endLat)){
-       hardLeft(100);
-       delay(500);
-    }
-  }  
-  forward(0);
+      halt();
+      delay(1000);
+      
+      if(heading() < nav_heading(startLon, startLat, endLon, endLat)){
+         hardRight(200);
+         delay(500);
+        
+      } else if(heading() < nav_heading(startLon, startLat, endLon, endLat)){
+         hardLeft(200);
+         delay(500);
+      }
+    }  
+  }else if(ULDiff < 0){
+    while((heading() > navHeadingUpper) && (heading() < navHeadingLower)){
+      
+      halt();
+      delay(1000);
+      hardRight(200);
+      delay(500);
+    }  
+  }
+  halt();
 }
 
 //points the rover away from the endGPS
 void moveAway(GPS* startGPS, GPS* endGPS){
   float startLon, startLat, endLon, endLat;
-  forward(0);
+  halt();
 
   startLon =  startGPS->lon.lon_lat;
   startLat =  startGPS->lat.lon_lat;
@@ -456,33 +593,55 @@ void moveAway(GPS* startGPS, GPS* endGPS){
   endLat = endGPS->lat.lon_lat;
 
   //reflect endGPS over the Rover gps
-  endLon = startLon - (endLon - startLon);
-  endLat = startLat - (endLat - startLat);
+  endLon = (startLon - (endLon - startLon) * 5);
+  endLat = (startLat - (endLat - startLat) * 5);
 
+  float navHeading = nav_heading(startLon, startLat, endLon, endLat);
+  float navHeadingLower = (navHeading - 20);
+  float navHeadingUpper = (navHeading + 20);
+
+  if(navHeadingLower < 0){
+    navHeadingLower += 360;
+  } 
+  if(navHeadingUpper > 360){
+    navHeadingUpper -= 360;  
+  }
+
+  double ULDiff = navHeadingUpper - navHeadingLower;
   //orient rover in direction of end location
-  while((heading() < (nav_heading(startLon, startLat, endLon, endLat) - 10)) || (heading() > (nav_heading(startLon, startLat, endLon, endLat) + 10))){
-    
-    forward(0);
-    delay(2000);
-    
-    if(heading() < nav_heading(startLon, startLat, endLon, endLat)){
-       hardRight(100);
-       delay(500);
+  if(ULDiff > 0){
+    while((heading() > navHeadingUpper) || (heading() < navHeadingLower)){
       
-    } else if(heading() < nav_heading(startLon, startLat, endLon, endLat)){
-       hardLeft(100);
-       delay(500);
-    }
-  }  
-  forward(0);
+      halt();
+      delay(1000);
+      
+      if(heading() < nav_heading(startLon, startLat, endLon, endLat)){
+         hardRight(200);
+         delay(500);
+        
+      } else if(heading() < nav_heading(startLon, startLat, endLon, endLat)){
+         hardLeft(200);
+         delay(500);
+      }
+    }  
+  }else if(ULDiff < 0){
+    while((heading() > navHeadingUpper) && (heading() < navHeadingLower)){
+      
+      halt();
+      delay(1000);
+      hardRight(200);
+      delay(500);
+    }  
+  }
+  halt();
 }
 
 
 //returns heading as 
 int nav_heading(double start_lon, double start_lat, double end_lon, double end_lat){
   int heading = 0;
-  double lon_lat = fabs((start_lon - end_lon) / (start_lat - end_lat));           //get longitude difference over latitude difference.
-  double lat_lon = fabs((start_lat - end_lat) / (start_lon - end_lon));           //get latitude difference over longitude difference.
+  double lon_lat = fabs((start_lon - end_lon) / (start_lat - end_lat));          //get longitude difference over latitude difference.
+  double lat_lon = fabs((start_lat - end_lat) / (start_lon - end_lon));          //get latitude difference over longitude difference.
   if(start_lat - end_lat < 0){                                                   //denotes heading being north
     if(start_lon - end_lon < 0){                                                 //denotes heading being west
       //II
@@ -633,6 +792,13 @@ int heading(){
   Wire2.endTransmission(true);                   //End the transmission. 
 
   xy = (float) magx / magy;
+
+  /*
+  Serial2.print("Magx: ");
+  Serial2.println(String(magx) + "-");
+  Serial2.print("Magy: ");
+  Serial2.println(String(magy) + "-");
+  */
   
   if(magy > 0){
     dir = 90 - (atan(xy) * (180 / M_PI));
@@ -647,13 +813,17 @@ int heading(){
   }
 
   //180 degree difference b/c protoboard.
-  if(dir < 180)
+  /*if(dir < 180){
     dir = dir + 180;
-  else
+  }else{
     dir = dir - 180;
+  }*/
 
+  Serial2.print("The dir is: ");
+  Serial2.println(String(dir) + "-");
   return dir;
 }
+
 bool check_level(){
   int16_t accx, accy, accz;
   
@@ -688,9 +858,38 @@ bool check_level(){
   }
 }
 
+bool checkFlipped(){
+  int16_t accx, accy, accz;
+  
+  //Obtain values for x, y, and z acceleration.
+  Wire2.beginTransmission(Accel_addr);
+  Wire2.write(0x28);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Accel_addr, 2, true);        
+  accx = Wire2.read() << 8 | Wire2.read();
+       
+  Wire2.beginTransmission(Accel_addr);
+  Wire2.write(0x2A);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Accel_addr, 2, true);
+  accy = Wire2.read() << 8 | Wire2.read();
+  
+  Wire2.beginTransmission(Accel_addr);
+  Wire2.write(0x2C);                                     
+  Wire2.endTransmission(false);          
+  Wire2.requestFrom(Accel_addr, 2, true);
+  accz = Wire2.read() << 8 | Wire2.read();
+
+  //Check if we are upside down
+  if(accz < 8000){
+    return 1;
+  }else{
+    return 0;    
+  }
+}
+
 //*******************************************************************OBJECT AVOIDANCE********************************************************
 //Returns distance to nearest object in meters.
-//Input 0-2: left, middle, right.
 //Adjust sample size to change the amount of samples averaged together *recommended with high freq sonars*
 float get_distance(int dir){
   float distance = 0;
@@ -723,19 +922,19 @@ void objectAvoidance(){
 
    while(sonar0 < 0.8 or sonar1 < 0.8){
      if(sonar0 < sonar1){
-       hardRight(150);
+       hardRight(200);
      }else if(sonar0 > sonar1){
-       hardLeft(150);
+       hardLeft(200);
      }
 
-     delay(500);
+     delay(200);
      
      sonar1 = get_distance(1);
      sonar0 = get_distance(0);
      
    }
    
-   forward(125);
+   forward(200);
 }
 
 void sonarWatching(){
@@ -743,16 +942,14 @@ void sonarWatching(){
   //threads.setTimeSlice(ID, 50);
   
   while(1){
-
+    
    digitalWrite(teensyLED, LOW);
    delay(100);
    digitalWrite(teensyLED, HIGH);
-
+  
    float sonar1 = get_distance(1);
    float sonar0 = get_distance(0);
-
-   //Serial2.print("Data for sonar1:" + String(sonar1) + "   Data for sonar0:" + String(sonar0) + "-");
-   
+     
    if( sonar0 <= 0.8 or sonar1 <= 0.8){
      digitalWrite(sonarFlag, HIGH); 
      delay(5);
@@ -772,21 +969,32 @@ void serialFlush(){
 
 void targetLeft(int dist){
   int timeCalculation;
-
-  //timeCalculation = 
-  left(50);
-  delay(500);
-  forward(0);
   
+  if(dist < 20){
+    forward(100);
+    delay(500);
+    halt();  
+  }else{
+  //timeCalculation = 
+    left(50);
+    delay(500);
+    halt();
+  }
 }
 
 void targetRight(int dist){
   int timeCalculation;
-  
-  //timeCalculation = 
-  right(50);
-  delay(500);
-  forward(0);
+
+  if(dist < 20){
+    forward(100);
+    delay(500);
+    halt();  
+  } else {
+    //timeCalculation = 
+    right(50);
+    delay(500);
+    halt();
+  }
 }
 
 void Docking(){
@@ -794,9 +1002,11 @@ void Docking(){
   char* distSTR;
   String received;
   int dist;
-  delay(5);
+  int count = 0;
   
-  while(1){
+  delay(5);
+ 
+  while(count < 100){
     if(Serial5.available() > 0){
       //Receive String From Beaglebone
       received = Serial5.readStringUntil('!');
@@ -827,21 +1037,32 @@ void Docking(){
           delay(500);
         }
       }
-
       //reset values and flush serial
       //received = "";
       delay(7000);
       serialFlush();
+      count = 0;
+    }else{
+      count++;  
     }
+    delay(500);
   }
+
+  while(check_level() == false){
+    slowTurn(250,200);
+    delay(800);
+    halt(); 
+  }
+  //open door when soil collected
+  bot_door(1);
+  
 }
 
 //*******************************************************************GPS**********************************************************************
 
 //puts values from sentence into desired fields.
 void parseGPS(GPS* currGPS, char* sentence){
-  Serial.println();
-  Serial.println(sentence);
+  
   MatchState ms;
   ms.Target(sentence);
   char buffer[256];
@@ -861,8 +1082,6 @@ void parseGPS(GPS* currGPS, char* sentence){
     Serial.print("GPS is not locked.\n");
   }
 } 
-
-
 
 //logs GPS data into a .txt file.
 void logGPS(GPS* currGPS){
@@ -890,9 +1109,24 @@ void logGPS(GPS* currGPS){
   dataFile.close();
 }
 
+//logs GPS data into a .txt file.
+void logString(String sentence){
+  dataFile = SD.open("datalog.txt", FILE_WRITE);
+    
+  if(dataFile){
+
+    dataFile.println(sentence);
+    
+  }else{
+    Serial.print("Error Opening dataFile");
+  }
+  dataFile.close();
+}
+
+
 void serialPrintGPS(GPS* currGPS){
     
-  Serial.println("************************-");
+  Serial.println("************************");
   delay(200);
   Serial.println("Time:" + String(currGPS->UTC_time.hours) + ":" + String(currGPS->UTC_time.minutes) + "." + String(currGPS->UTC_time.seconds));
   delay(200);
@@ -900,24 +1134,9 @@ void serialPrintGPS(GPS* currGPS){
   delay(200);
   Serial.println("Longitude:" + String(currGPS->lon.lon_lat) + ", " + String(currGPS->lon.cardinal));
   delay(200);
-  Serial.println("************************-");
+  Serial.println("************************");
   delay(200);
   Serial.println("");
-}
-
-void transmitGPS(GPS* currGPS){
-    
-  Serial2.print("************************-");
-  delay(200);
-  Serial2.print("Date:" + String(currGPS->date) + "-");
-  delay(200);
-  Serial2.print("Latitude:" + String(currGPS->lat.lon_lat) + ", " + String(currGPS->lat.cardinal) + "-");
-  delay(200);
-  Serial2.print("Longitude:" + String(currGPS->lon.lon_lat) + ", " + String(currGPS->lon.cardinal) + "-");
-  delay(200);
-  Serial2.print("************************-");
-  delay(200);
-  Serial2.print("");
 }
 
 double degrees_to_radians(double degrees) {
@@ -941,6 +1160,26 @@ double distanceGPS(GPS* a, GPS* b) {
     return distance;
 }
 
+void flushSerial2(){
+    while(Serial2.available()){
+      Serial2.readString();
+    }
+}
+
+String getTransmission(){
+
+  String received = "There is no transmission";
+  
+  if(Serial2.available()){
+    received = Serial2.readStringUntil(0xEE);
+    //logString(received + "-");
+  }
+  //flushSerial2();
+ 
+  return received;
+}
+
+
 //Transmits the GPS location of the rover and parses into GPS object, transmits to RF and logs the coordinates.
 void getGPSsample(GPS* currGPS){
   
@@ -952,11 +1191,9 @@ void getGPSsample(GPS* currGPS){
   char designation[20];
   int count = 0; 
   
-  
   while(cordsPrinted == 0){
     if(Serial3.available()){
       char gpsBuffer = Serial3.read();
-
       // If we get a non newline GPS read from the buffer and aren't at the end
       if((gpsBuffer != '\n') && (count < gpsSentenceLen)){
     
@@ -964,11 +1201,12 @@ void getGPSsample(GPS* currGPS){
         // of a GPS (NMEA) byte sentence
         sentence[count] = gpsBuffer;
         count++;    
+        //blinking(1);
       }else{
         // If we hit a newline or the end, set a null and restart our counter
         sentence[count] = '\0';
         count = 0;
-       
+        
         for(int i = 0; i < 6; i++){
           designation[i] = sentence[i];
         }
@@ -978,9 +1216,9 @@ void getGPSsample(GPS* currGPS){
           cordsPrinted = 1;
           Serial2.print(sentence + '-');
           parseGPS(currGPS, sentence);
-          logGPS(currGPS); 
-          transmitGPS(currGPS);
-          serialPrintGPS(currGPS);
+          //logGPS(currGPS); 
+          //transmitGPS(currGPS);
+          //serialPrintGPS(currGPS);
         }
       }
     }
@@ -995,4 +1233,176 @@ void print_time(int hours, int minutes, double seconds) {
         printf("AM -> ");
     else
         printf("PM -> ");
+}
+
+
+
+//***********************************************************Transmit*************************************************************
+
+void transmitGPS(GPS* currGPS){
+  transmitShaggy(String(currGPS->lat.lon_lat));
+  transmitShaggy(", ");
+  transmitShaggy(String(currGPS->lat.cardinal));
+  transmitShaggy(", ");
+  transmitShaggy(String(currGPS->lon.lon_lat));
+  transmitShaggy(", ");
+  transmitShaggy(String(currGPS->lon.cardinal));
+}
+
+void transmitShaggy(String sentence){
+
+  char charSentence[100];
+  char temp;
+  
+  for(int i = 0; i < sentence.length() + 1; i++){
+    temp = charSentence[i];
+    charSentence[i] = (uint8_t)temp;
+  }
+  
+  // Parsing into new buffer
+  for(int q = 0; q < 50; q++)
+    data[q] = sentence[q];
+
+  int i = 0;
+      
+    //was myData, modified to test the gps throughput
+  for(i = 0; i < (strlen(data) + 1); i++)  
+    bufferPacket[i] = (uint8_t)data[i];
+
+  bufferPacket[i - 1] = 0xEE; // Set the terminator
+
+  payloadPacket = txRequestPacketGenerator(ShaggyHigh, ShaggyLow, bufferPacket);
+
+  if(Serial2){
+    Serial2.write(payloadPacket, sizeofPacketArray(payloadPacket));  
+  }
+}  
+
+
+
+uint8_t *txRequestPacketGenerator(uint32_t SH_Address, uint32_t SL_Address, uint8_t *payload)
+{
+   // Best way to do this is just use one array with the maximum number of bytes that could be put into it and making sure that
+   // the 0xEE char is placed at the end of the desired packet
+   uint16_t checksum = 0;
+
+   // Initialization was done globally - is that alright?
+   for(int x = 0; x < 220; x++)
+      packet[x] = 0x00;
+
+   // Serial.print("The size of the packet is: ");
+   // Serial.println(sizeof(*packet)/sizeof(uint8_t));
+
+   // DEFAULT PACKET NEEDS TO BE BASICALLY EMPTY AND CONSTRUCTED 
+   // ON THE FLY IN ORDER FOR THE ESCAPE CHARACTER DEALIO TO WORK CORRECTLY
+
+   // Can we scrunch this up into standard start bits?
+   packet[0] = 0x7E; //start delimeter
+   packet[1] = 0x00; //length MSB
+   packet[2] = 0x10; //length LSB
+   packet[3] = 0x10; //frame type (tx request)
+   packet[4] = 0x01; //Frame ID
+
+   // ECE Magic
+   packet[5] = ((0xFF000000 & SH_Address) >> 24); //64 bit address begin
+   packet[6] = ((0x00FF0000 & SH_Address) >> 16);
+   packet[7] = ((0x0000FF00 & SH_Address) >> 8);
+   packet[8] = (0x000000FF & SH_Address);
+
+   packet[9] = ((0xFF000000 & SL_Address) >> 24);
+   packet[10] = ((0x00FF0000 & SL_Address) >> 16);
+   packet[11] = ((0x0000FF00 & SL_Address) >> 8);
+   packet[12] = 0x000000FF & SL_Address;
+
+   packet[13] = 0xFF;  //Reseved byte 1
+   packet[14] = 0xFE;  //Reserved byte 2
+   packet[15] = 0x00;  //broadcast radius
+   packet[16] = 0x00;  //transmit options
+   // Other reserved bits could be injected here
+
+   int newArraySize = 18 + sizeofPacketArray(payload); //This may change depending on what the address of the receiver is
+
+   /*debugging lines
+     Serial.print("Size of the new array is: ");
+     Serial.println(newArraySize);
+     */
+
+   if(sizeofPacketArray(payload) > 1)
+   {
+      uint16_t packetLength = 0xE + (uint8_t)sizeofPacketArray(payload);  //calculate packet length
+
+      packet[1] = 0xFF00 & packetLength;  //setting MSB packet length
+      packet[2] = 0x00FF & packetLength;  //setting LSB packet length
+
+      // place payload in array
+      for(int w = 0; w < (newArraySize); w++)
+   packet[w + 17] = payload[w]; 
+
+      //calculate new checksum
+      for(int e = 3; e < (newArraySize - 1); e++)
+   checksum += packet[e];
+
+      uint8_t finalChecksum = checksum & 0xFF;
+      finalChecksum = 0xFF - finalChecksum;
+
+      //frame length is also fixed based on the initial estimate
+
+      // checksum is calculated by adding all bytes exept start delimeter and length bytes
+      //  That means sum from the 4th byte to the end of the rf data
+      // only keep the lowest 8 bits
+      // subtract quantity from 0xFF
+      // checksum is not affected by the escaped data change
+      // ORDER OF ASSEMBLY
+      // put the bytes in order (no escaped bits have been substituted yet)
+      // calculate the checksum of these
+      // swap out bits for checksum
+      // SHIP IT
+
+      packet[newArraySize - 1] = finalChecksum;
+
+      for(int y = 1; y < newArraySize; y++)
+      {
+   //double check to see what happens if the checksum contains an excape character
+   if(packet[y] == 0x7E || packet[y] == 0x7D || packet[y] == 0x11 || packet[y] == 0x13)
+   {
+      newArraySize++;
+
+      for(int r = (newArraySize); r > (y); r--)
+         packet[r] = packet[r-1];
+
+      packet[y + 1] = packet[y] ^ 0x20;
+      packet[y] = 0x7D;
+   }
+      }
+
+      // while(!zeroEscChars)
+      // for each value in array check to make sure they are not an escape character
+      // if they are an escape character, resize the array increasing the size by one, inserting the escape character and
+      // performing the correct math on the byte in question
+      // recalculate the size of the array
+      // recalculate checksum according to new algorithm found in the API mode
+      // The device calculates the checksum (on all non-escaped bytes) as [0xFF - (sum of all bytes from API frame type through data payload)].
+
+      //once that is all said and done, add the 0xEE to the last index of the array
+      packet[newArraySize] = 0xEE;//final value to indicate end of array
+   }
+
+   // Do we need some kind of 'else' failure mechanism here?
+   return packet;
+}
+
+
+
+// Simple sizeof
+int sizeofPacketArray(uint8_t *packett)
+{
+   int packetCounter = 0;
+
+   while(packett[packetCounter] != 0xEE)
+      packetCounter++;
+
+   if(packett[packetCounter] == 0xEE)
+      return packetCounter;   
+   else
+      return 9000;  // This better not be a MEME
 }
