@@ -1,0 +1,152 @@
+Beaglebone Setup!
+
+DISKPART TO FORMAT SD--------------------------------------------------------------------------------------------------------------------------
+
+diskpart
+list disk
+select disk x
+clean
+create partition primary
+select partition 1
+active
+format FS=NTFS label=beaglebone quick
+
+
+
+
+
+EXPAND BEAGLEBONE MEMORY-----------------------------------------------------------------------------------------------------------------
+
+ls /dev/mmcblk*
+fdisk /dev/mmcblk0
+enter p to list space
+note the start (8192)
+d to delete
+n to create new part
+Answer questions 
+First Question: Choose default by just hitting enter
+Second Question: Choose default
+Third Question: Choose the earlier recorded start (8192)
+Fourth Question: Choose default for max
+w to commit changes or ctrl + c to exit without saving
+reboot to apply changes 
+resize2fs /dev/mmcblk0p1 to finish and expand file system
+
+
+CONNECT TO WIRELESS INTERNET---------------------------------------------------------------------------------------------------------------
+
+sudo connmanctl
+enable wifi
+scan wifi
+services
+copy and paste the wifi_blah associated with your wifi
+agent on
+connect wifi_blah
+XXXXXX for pass phrase
+quit
+To test OPTIONAL: ifconfig -a 
+
+INSTALL UPDATES--------------------------------------------------------------------------------------------------------------------
+-It is best practice to use screen during dist-upgrade as ssh can stop.. To do so
+sudo apt-get install screen
+screen
+sudo apt-get upgrade
+-To understand how this works you can "detatch"screenby pressing ctrl+a,d. You can enter curser mode with ctrl + esc and scroll up and down with j and k. Escape curser mode with esc. This willreturn you to the non-screen terminal. 
+screen -list (You can see a list of screens)
+-If you only haveone screen runing you can reattach it with 
+screen -raAd (Attaches to terminal you have running)
+
+sudo apt-get update
+sudo apt-get dist-upgrade (Warning: this might take a while)
+reboot
+sudo apt-get autoremove
+
+GRAB MY CODE FROM GIT--------------------------------------------------------------------------------------------------------------------
+
+git clone https://github.com/OSU-USLI-19/Rover-2019.git
+
+INSTALLING MRAA LIBRARY--------------------------------------------------------------------------------------------------------------------
+
+(https://learn.sparkfun.com/tutorials/installing-libmraa-on-ubilinux-for-edison/all)
+
+INSTALL DEPENDANCIES
+apt-get update to insure updated 
+apt-cashe search pcre
+apt-get install libpcre-dev
+apt-get install git
+apt-get install cmake
+apt-get install python-dev
+apt-get install swig
+
+BUILD AND INSTALL MRAA
+git clone https://github.com/intel-iot-devkit/mraa.git as of 2/8/2019
+mkdir mraa/build && cd $_
+cmake .. -DBUILDSWIGNODE=OFF
+make
+make install
+
+UPDATE SHARED LIBRARY CASHE
+nano /etc/ld.so.conf
+add into the file: /usr/local/lib/i386-linux-gnu/ under include /etc/ld.so.conf.d/*.conf
+ldconfig
+ldconfig -p | grep mraa
+
+INSTALL OPENCV--------------------------------------------------------------------------------------------------------------------
+
+AUTOMATIC
+sudo apt-get install python-opencv
+sudo apt-get install libopencv-dev python3-opencv
+
+or
+
+MANUAL   (https://docs.opencv.org/2.4/doc/tutorials/introduction/linux_install/linux_install.html)
+sudo apt-get install build-essential
+sudo apt-get install cmake git libgtk2.0-dev pkg-config libavcodec-dev libavformat-dev libswscale-dev
+OPTIONAL:  sudo apt-get install python-dev python-numpy libtbb2 libtbb-dev libjpeg-dev libpng-dev libtiff-dev libjasper-dev libdc1394-22-dev
+
+cd ~/<my_working _directory>
+git clone https://github.com/opencv/opencv.git
+
+1. Create a temporary directory, which we denote as <cmake_binary_dir>, where you want to put the generated Makefiles, project files as well the object files and output binaries.
+2. Enter the <cmake_binary_dir> and type cmake [<some optional parameters>] <path to the OpenCV source directory>
+
+FOR EXAMPLE
+
+cd ~/opencv
+mkdir release
+cd release
+cmake -D CMAKE_BUILD_TYPE=RELEASE -D CMAKE_INSTALL_PREFIX=/usr/local ..
+
+3. Enter the created temporary directory (<cmake_binary_dir>) and proceed with:
+
+make
+sudo make install
+
+ENABLE UART1-------------------------------------------------------------------------------------------------------------------
+
+sudo nano /boot/uEnv.txt
+ADD THE LINES: 
+cape_enable=capemgr.enable_partno=BB-UART1,BB-UART2,BB-UART4,BB-UART5
+optargs=capemgr.enable_partno=BB-UART1,BB-UART2,BB-UART3,BB-UART5
+
+sudo nano /etc/default/capemgr
+ADD THE LINES:
+CAPE=BB-SPI-01,BB-UART1,BB-UART2,BB-UART4
+
+
+ASK ABOUT LIBROBOT CONTROL and 
+rc_blink, rc_balance, existing
+
+
+
+CONFIGURE LEDS-----------------------------------------------------------------------------------------------------------------
+
+go to path /sys/class/leds/beaglebone:green:usr0
+
+check configuration once there with more trigger
+
+then you can turn off an led by echo none > trigger
+
+Autorun-------------------------------------------------------------------------------------------------------------------------
+
+cron

@@ -1,3 +1,14 @@
-# 2019 OSU USLI Rover Controller
+# 2019 OSU USLI Rover Teensy Controller
 
-A [Teensy 3.6 controller](https://www.pjrc.com/store/teensy36.html "PJRC Store") which will communicate with the BeagleBone over serial. It will maneuver the rover around obstacles spotted with computer vision as it collects and returns samples.
+In order to run this code, you must install arduino along with teensyduino in order to support flashing to a teensy 3.6 micro controller.
+
+Specific libraries must be downloaded as will be prompted when trying to flash the code such as:
+
+teensythreads.h
+Regexp.h
+XBee.h
+SD.h
+SPI.h
+Wire.h
+
+These will allow full functionality of the rover teensy code. 
