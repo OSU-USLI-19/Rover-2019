@@ -218,7 +218,8 @@ void loop() {
   GPS baseStatGPS;
   GPS Aft;
   GPS SoilSample;
-  
+
+  //After being launched out of the airframe, check if upside down
   while(checkFlipped()){
     digitalWrite(dr_dir_l, HIGH); 
     digitalWrite(dr_dir_r, HIGH);
@@ -232,7 +233,7 @@ void loop() {
 
   
   String sentence;
-  //wait for lock and aft transmission
+  //wait for gps lock and aft transmission before moving
   while(rocketGPS.isValid == 0 ){     //|| Aft.isValid == 0
     //sentence = getTransmission();
     //parseGPS(&Aft, sentence);
@@ -242,17 +243,19 @@ void loop() {
  
   //Begin Threading for sonar to watch for objects          
   threadID = threads.addThread(sonarWatching, 0);
-  
+
+  //Begin moving forward (The rover moved strait at these values because of mechanical defects)
   slowTurn(250, 200);
   delay(5000);
   
-  //PHASE 1
+  //PHASE 1 - move forward until out of range of launch vehicle (set for 30 meters)
   do{
     getGPSsample(&rovGPS);
     slowTurn(250, 200);
     delay(5000);
   }while(distanceGPS(&rovGPS, &rocketGPS) <= 30 );  // || distanceGPS(&rovGPS, &Aft) <= 40
 
+  //Auger Drilling routine where the rover will move forward with object avoidance and collect soil when on flat ground
   threads.suspend(threadID);
   while(1){
     //Activate Auger to drill for sample
@@ -286,7 +289,7 @@ void loop() {
   
   threads.restart(threadID);
   
-  //Travel to base station
+  //Travel to base station until located 10 meters away from base station. 
   while(distanceGPS(&rovGPS, &baseStatGPS) >= 10){
     getGPSsample(&rovGPS);
     moveToward(&rovGPS, &baseStatGPS);
@@ -304,6 +307,8 @@ void loop() {
 
 //**********************************************************Rover Movement Functions w/ slow start and stop***************************************
 
+//Blink teensy LED for debugging
+//first parameter is the number of times to blink
 void blinking(int i){
   while(i > 0){
     digitalWrite(teensyLED, LOW);
@@ -314,6 +319,7 @@ void blinking(int i){
   }
 }
 
+//Slow the rover to a halt with slow stop
 void halt(){
   int val_l = curr_l, val_r = curr_r;
   while(val_l != 0 || val_r != 0){
@@ -336,7 +342,8 @@ void halt(){
   curr_l = val_l;
   curr_r = val_r;
 }
- 
+
+//slow start moving forward, the first parameter is the speed value to get to
 void forward(int val){
   int val_l = curr_l, val_r = curr_r;
   digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
@@ -362,8 +369,8 @@ void forward(int val){
   curr_r = val_r;
 }
 
-
-
+//Turn left slowly pivoting on right wheel
+//first paremeter is the speed of the left wheel
 void left(int val){
   digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
   int val_l = curr_l;
@@ -390,6 +397,8 @@ void left(int val){
   curr_r = val_r;
 }
 
+//Turn right wheel slowly pivoting on left wheel
+//first paremeter is the speed of the right wheel
 void right(int val){
   digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
   int val_l = curr_l;
@@ -415,6 +424,8 @@ void right(int val){
   curr_r = val_r;
 }
 
+//Slowly turn
+//first paremeter is the power level of the left wheel, second parameter is the power of the right wheel
 void slowTurn(int val_ls, int val_rs){
    int val_l = curr_l, val_r = curr_r;
   digitalWrite(dr_dir_l, HIGH); digitalWrite(dr_dir_r, HIGH);
@@ -440,6 +451,7 @@ void slowTurn(int val_ls, int val_rs){
 }
 
 //Sharp left turn with rover, both wheels moving opposite direction
+//first parameter is the power level of the turn
 void hardLeft(int val){
   
   int val_l = curr_l;
@@ -480,6 +492,7 @@ void hardLeft(int val){
 }
 
 //Sharp right turn with rover
+//first parameter is the power level of turn
 void hardRight(int val){
   int val_l = curr_l;
   int val_r = curr_r;
@@ -520,17 +533,16 @@ void hardRight(int val){
   curr_r = val_r;
 }
 
-
+//Unused function, existing for reference
 void reverse(int val){
   digitalWrite(dr_dir_l, LOW); digitalWrite(dr_dir_r, LOW);
   analogWrite(dr_pwm_l, val); analogWrite(dr_pwm_r, val);
-
-  
 }
+
 //****************************************************************GPS ROUTING ALGORITHMS**********************************************
 
 
-
+//Points the rover toward the endGPS location by matching calculated heading with the magnetometer.
 void moveToward(GPS* startGPS, GPS* endGPS){
   float startLon, startLat, endLon, endLat;
   halt();
@@ -581,7 +593,7 @@ void moveToward(GPS* startGPS, GPS* endGPS){
   halt();
 }
 
-//points the rover away from the endGPS
+//points the rover away from the endGPS by reflecting the endGPS over the roveGPS and moving towards that reflected point
 void moveAway(GPS* startGPS, GPS* endGPS){
   float startLon, startLat, endLon, endLat;
   halt();
@@ -637,7 +649,7 @@ void moveAway(GPS* startGPS, GPS* endGPS){
 }
 
 
-//returns heading as 
+//returns heading between 2 Lat long points
 int nav_heading(double start_lon, double start_lat, double end_lon, double end_lat){
   int heading = 0;
   double lon_lat = fabs((start_lon - end_lon) / (start_lat - end_lat));          //get longitude difference over latitude difference.
@@ -659,14 +671,13 @@ int nav_heading(double start_lon, double start_lat, double end_lon, double end_l
       heading = 180 + (RADDEG * atan(lon_lat));                                  //+180 degrees for quadrant 4
     }
   }
-
   return(heading);
 }
 
 //****************************************************************SOIL COLLECTION*************************************************
 
 
-//Manipulate top door of retention container
+//Manipulate top door of retention container rotating controlled by encoders to rotate 90 degrees open and closed
 //0 - Open. 1 - Close.
 void top_door(int val){
   analogWrite(soil_top_pwm, 200);
@@ -692,7 +703,7 @@ void top_door(int val){
   analogWrite(soil_top_pwm, 0);
 }
 
-//Manipulate top door of retention container
+//Manipulate bot door of retention container rotating controlled by encoders to rotate 90 degrees open and closed
 //0 - Close. 1 - Open.
 void bot_door(int val){
   analogWrite(soil_bot_pwm, 200);
@@ -718,7 +729,7 @@ void bot_door(int val){
   analogWrite(soil_bot_pwm, 0);
 }
 
-//Sends the auger down and back up.
+//Sends the auger down and back up, controlled by encoders to rotate the correct distance down and back up.
 void auger(){
   digitalWrite(auger_dir1, LOW); digitalWrite(auger_dir2, HIGH);
   analogWrite(auger_pwm, 200);
@@ -735,7 +746,7 @@ void auger(){
   analogWrite(auger_pwm, 0);
 }
 
-
+//interrupt counters for encoder
 void auger_encoder() // Encoder interrupt script activated when Encoder A is RISING
   {
   if (digitalRead(auger_enB)==HIGH){
@@ -745,7 +756,7 @@ void auger_encoder() // Encoder interrupt script activated when Encoder A is RIS
   }
 }
 
-
+//interrupt counters for encoder
 void soil_top_encoder() // Encoder interrupt script activated when Encoder A is RISING
   {
   if (digitalRead(soil_top_enB)==HIGH){
@@ -755,7 +766,7 @@ void soil_top_encoder() // Encoder interrupt script activated when Encoder A is 
   }
 }
 
-
+//interrupt counters for encoder
 void soil_bot_encoder() // Encoder interrupt script activated when Encoder A is RISING
   {
   if (digitalRead(soil_bot_enB)==HIGH){
@@ -824,6 +835,7 @@ int heading(){
   return dir;
 }
 
+//check level of ground and make sure that level is within a variable range (As specified in globals: level_target)
 bool check_level(){
   int16_t accx, accy, accz;
   
@@ -858,6 +870,7 @@ bool check_level(){
   }
 }
 
+//checks gyro to see if the rover has been flipped or not, returns true when flipped. 
 bool checkFlipped(){
   int16_t accx, accy, accz;
   
@@ -907,14 +920,13 @@ float get_distance(int dir){
     }else{
       return 0;  
     }
-   
   }
   distance = distance / (samples * 200);
   
   return distance;
 }
 
-
+//Turn to avoid objects with in .8 meters
 void objectAvoidance(){
 
    float sonar1 = get_distance(1);
@@ -937,6 +949,7 @@ void objectAvoidance(){
    forward(200);
 }
 
+//Threaded process that continuously watches for obstruction and raises interrupt to dealwith objects.
 void sonarWatching(){
   //int ID = threads.id();
   //threads.setTimeSlice(ID, 50);
@@ -959,7 +972,7 @@ void sonarWatching(){
 }
 
 //**************************************************************BEAGLEBONE DOCKING**********************************************************
-
+//flushes serial monitor
 void serialFlush(){
   String t;
   while(Serial5.available() > 0){
@@ -967,6 +980,8 @@ void serialFlush(){
   }
 }
 
+//Function called when target is to the left of center
+//The dist parameter is the amount of pixels off center
 void targetLeft(int dist){
   int timeCalculation;
   
@@ -982,6 +997,8 @@ void targetLeft(int dist){
   }
 }
 
+//Function called when target is to the right of center
+//The dist parameter is the amount of pixels off center
 void targetRight(int dist){
   int timeCalculation;
 
@@ -997,6 +1014,7 @@ void targetRight(int dist){
   }
 }
 
+//Main function that will allow for docking of the rover. 
 void Docking(){
   char* dir;
   char* distSTR;
@@ -1055,12 +1073,11 @@ void Docking(){
   }
   //open door when soil collected
   bot_door(1);
-  
 }
 
 //*******************************************************************GPS**********************************************************************
 
-//puts values from sentence into desired fields.
+//puts values from sentence into desired fields using an arduino regex expression (Different from normal regex *facepalm*).
 void parseGPS(GPS* currGPS, char* sentence){
   
   MatchState ms;
