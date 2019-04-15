@@ -2,12 +2,12 @@
 
 In order to run this code, you must install arduino along with teensyduino in order to support flashing to a teensy 3.6 micro controller.
 
+In order to install teensyduino, go to this link and set it up. There is a guide on the site.
+https://www.pjrc.com/teensy/teensyduino.html
+
 Specific libraries must be downloaded as will be prompted when trying to flash the code such as:
 
-
-
 Regexp.h
-XBee.h (Xbee arduino library)
 SD.h
 SPI.h
 Wire.h
