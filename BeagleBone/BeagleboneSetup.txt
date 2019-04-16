@@ -1,5 +1,9 @@
 Beaglebone Setup!
 
+IMPORTANT! The CV-UART.cpp is the program that is run while directly connected to the teensy on the rover. This is the code to be used! This code is not up 
+to date, it contains code for full functionality. Various non essential changes have been added to CV-UART.cpp that are still on the beaglebone (Attached to
+the rover for the mechanical engineers). 
+
 DISKPART TO FORMAT SD--------------------------------------------------------------------------------------------------------------------------
 
 diskpart
