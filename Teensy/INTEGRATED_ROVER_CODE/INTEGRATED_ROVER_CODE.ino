@@ -62,7 +62,6 @@ const int auger_enA = 12, auger_enB = 11, soil_top_enA = 24, soil_top_enB = 25;
 const int soil_bot_enA = 26, soil_bot_enB = 27; 
 const int sonarInterrupt = 29; const int sonarFlag = 30;
 
-
 //motor encoder definitions
 int auger_counter = 5856, soil_top_counter = 800, soil_bot_counter = 800;
 int auger_dir = 0, soil_top_dir = 0, soil_bot_dir = 0;
@@ -92,7 +91,6 @@ File dataFile;
 uint8_t *payloadPacket, *bufferPacket;
 uint8_t *packet = new uint8_t[220];
 char data[100];
-
 
 int threadID;
 
@@ -1353,11 +1351,11 @@ uint8_t *txRequestPacketGenerator(uint32_t SH_Address, uint32_t SL_Address, uint
 
       // place payload in array
       for(int w = 0; w < (newArraySize); w++)
-   packet[w + 17] = payload[w]; 
+		packet[w + 17] = payload[w]; 
 
       //calculate new checksum
       for(int e = 3; e < (newArraySize - 1); e++)
-   checksum += packet[e];
+		checksum += packet[e];
 
       uint8_t finalChecksum = checksum & 0xFF;
       finalChecksum = 0xFF - finalChecksum;
@@ -1379,18 +1377,18 @@ uint8_t *txRequestPacketGenerator(uint32_t SH_Address, uint32_t SL_Address, uint
 
       for(int y = 1; y < newArraySize; y++)
       {
-   //double check to see what happens if the checksum contains an excape character
-   if(packet[y] == 0x7E || packet[y] == 0x7D || packet[y] == 0x11 || packet[y] == 0x13)
-   {
-      newArraySize++;
+		//double check to see what happens if the checksum contains an excape character
+		if(packet[y] == 0x7E || packet[y] == 0x7D || packet[y] == 0x11 || packet[y] == 0x13)
+		{
+			newArraySize++;
 
-      for(int r = (newArraySize); r > (y); r--)
-         packet[r] = packet[r-1];
+			for(int r = (newArraySize); r > (y); r--)
+				packet[r] = packet[r-1];
 
-      packet[y + 1] = packet[y] ^ 0x20;
-      packet[y] = 0x7D;
-   }
-      }
+				packet[y + 1] = packet[y] ^ 0x20;
+				packet[y] = 0x7D;
+			}
+		}
 
       // while(!zeroEscChars)
       // for each value in array check to make sure they are not an escape character
